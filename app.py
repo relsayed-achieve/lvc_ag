@@ -22,66 +22,6 @@ LAUNCH_EVENTS = [
 
 st.set_page_config(page_title="GBQ Reporter", layout="wide")
 
-# --- Light Mode CSS ---
-st.markdown("""
-<style>
-    /* Force light mode */
-    .stApp {
-        background-color: #ffffff;
-        color: #1e1e1e;
-    }
-    
-    /* Sidebar light mode */
-    [data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-    }
-    
-    /* Headers */
-    h1, h2, h3, h4, h5, h6 {
-        color: #1e1e1e !important;
-    }
-    
-    /* Text */
-    p, span, label, .stMarkdown {
-        color: #1e1e1e !important;
-    }
-    
-    /* Metric cards */
-    [data-testid="stMetricValue"] {
-        color: #1e1e1e !important;
-    }
-    
-    [data-testid="stMetricDelta"] {
-        color: inherit !important;
-    }
-    
-    /* Tables */
-    .stDataFrame {
-        background-color: #ffffff;
-    }
-    
-    /* Selectbox and inputs */
-    .stSelectbox, .stTextInput {
-        color: #1e1e1e;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        color: #1e1e1e !important;
-        background-color: #f0f2f6 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #f8f9fa;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #1e1e1e;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("📊 LVC Report Breakout")
 
 # --- Global Sidebar Filters ---
@@ -643,7 +583,7 @@ if creds:
                         fig_persona.update_layout(
                             font=dict(size=12, color='black'),
                             height=500,
-                            paper_bgcolor='white',
+                            paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='white'
                         )
                         
@@ -664,8 +604,8 @@ if creds:
                         df_heatmap = df_persona[['lvc_group', 'persona', 'fas_rate', 'lead_count']].copy()
                         
                         heatmap = alt.Chart(df_heatmap).mark_rect().encode(
-                            x=alt.X('lvc_group:N', title='LVC Group', axis=alt.Axis(labelColor='black', labelFontWeight='bold', titleColor='black', titleFontWeight='bold')),
-                            y=alt.Y('persona:N', title='Persona', axis=alt.Axis(labelColor='black', labelFontWeight='bold', titleColor='black', titleFontWeight='bold')),
+                            x=alt.X('lvc_group:N', title='LVC Group', axis=alt.Axis(labelColor='white', labelFontWeight='bold', titleColor='white', titleFontWeight='bold')),
+                            y=alt.Y('persona:N', title='Persona', axis=alt.Axis(labelColor='white', labelFontWeight='bold', titleColor='white', titleFontWeight='bold')),
                             color=alt.Color('fas_rate:Q', title='FAS Rate', scale=alt.Scale(scheme='blues')),
                             tooltip=[
                                 alt.Tooltip('lvc_group:N', title='LVC'),
@@ -676,10 +616,7 @@ if creds:
                         ).properties(
                             height=400
                         ).configure_view(
-                            strokeWidth=0,
-                            fill='#ffffff'
-                        ).configure(
-                            background='#ffffff'
+                            strokeWidth=0
                         )
                         
                         st.altair_chart(heatmap, use_container_width=True)
@@ -1093,7 +1030,7 @@ if creds:
                     y_format = '.1%' if is_rate else ',d'
                     y_axis_format = '%' if is_rate else None
                     
-                    # X-axis with year shown (multi-line format: Month Day \n Year) - black bold labels
+                    # X-axis with year shown (multi-line format: Month Day \n Year) - white bold labels
                     x_axis = alt.X(
                         'date_col:T', 
                         title=time_grain,
@@ -1102,18 +1039,18 @@ if creds:
                             labelExpr="datum.label + '\\n' + timeFormat(datum.value, '%Y')",
                             labelAlign='center',
                             labelPadding=5,
-                            labelColor='black',
+                            labelColor='white',
                             labelFontWeight='bold',
-                            titleColor='black',
+                            titleColor='white',
                             titleFontWeight='bold'
                         )
                     )
                     
-                    # Y-axis with black bold labels
+                    # Y-axis with white bold labels
                     y_axis_config = {
-                        'labelColor': 'black',
+                        'labelColor': 'white',
                         'labelFontWeight': 'bold',
-                        'titleColor': 'black',
+                        'titleColor': 'white',
                         'titleFontWeight': 'bold'
                     }
                     if y_axis_format:
@@ -1162,10 +1099,7 @@ if creds:
                     
                     if not visible_events:
                         return base.interactive().configure_view(
-                            strokeWidth=0,
-                            fill='#ffffff'
-                        ).configure(
-                            background='#ffffff'
+                            strokeWidth=0
                         )
                     
                     # Count same-date events for staggering
@@ -1209,10 +1143,7 @@ if creds:
                         layers.append(label)
                     
                     return alt.layer(*layers).interactive().configure_view(
-                        strokeWidth=0,
-                        fill='#ffffff'
-                    ).configure(
-                        background='#ffffff'
+                        strokeWidth=0
                     )
                 
                 # Overall Charts - Full Width (Presentation Style)
