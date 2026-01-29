@@ -119,7 +119,7 @@ if creds:
     client_project = getattr(creds, 'project_id', project_id)
     client = bigquery.Client(credentials=creds, project=client_project)
     
-    tab_main, tab_launch, tab_insights = st.tabs(["📊 Main Dashboard", "🚀 Pre/Post Launch(s)", "🤖 Comprehensive Insights (Jan 24+)"])
+    tab_main, tab_persona, tab_launch, tab_insights = st.tabs(["📊 Main Dashboard", "👤 LVC & Persona Analysis", "🚀 Pre/Post Launch(s)", "🤖 Comprehensive Insights (Jan 24+)"])
     
     # --- TAB 1: Main Dashboard ---
     with tab_main:
@@ -480,8 +480,8 @@ if creds:
         except Exception as e:
             st.error(f"Sankey Error: {e}")
 
-        # --- 3. LVC to Persona Analysis ---
-        st.divider()
+    # --- TAB: LVC & Persona Analysis ---
+    with tab_persona:
         st.header("👤 LVC to Persona Analysis")
         st.caption("Understanding which personas flow into which LVC groups and their FAS performance")
         
@@ -590,30 +590,45 @@ if creds:
                         st.plotly_chart(fig_persona, use_container_width=True)
                     
                     with persona_col2:
-                        st.subheader("🎯 FAS Rate by LVC & Persona")
+                        st.subheader("🎯 FAS Performance by LVC & Persona")
                         
-                        # Create pivot table for heatmap
-                        pivot_fas = df_persona.pivot_table(
-                            values='fas_rate', 
-                            index='persona', 
-                            columns='lvc_group', 
-                            aggfunc='mean'
-                        ).fillna(0)
+                        # Heatmap using Altair - based on FAS QTY with red-green gradient
+                        df_heatmap = df_persona[['lvc_group', 'persona', 'fas_rate', 'fas_count', 'lead_count', 'sent_to_sales_qty']].copy()
                         
-                        # Heatmap using Altair
-                        df_heatmap = df_persona[['lvc_group', 'persona', 'fas_rate', 'lead_count']].copy()
+                        # Create heatmap based on FAS count with more color steps
+                        # Use quantile scale type for better color distribution
+                        fas_min = df_heatmap['fas_count'].min()
+                        fas_max = df_heatmap['fas_count'].max()
+                        fas_mid = df_heatmap['fas_count'].median()
                         
-                        heatmap = alt.Chart(df_heatmap).mark_rect().encode(
+                        heatmap_base = alt.Chart(df_heatmap).mark_rect().encode(
                             x=alt.X('lvc_group:N', title='LVC Group', axis=alt.Axis(labelColor='white', labelFontWeight='bold', titleColor='white', titleFontWeight='bold')),
                             y=alt.Y('persona:N', title='Persona', axis=alt.Axis(labelColor='white', labelFontWeight='bold', titleColor='white', titleFontWeight='bold')),
-                            color=alt.Color('fas_rate:Q', title='FAS Rate', scale=alt.Scale(scheme='blues')),
+                            color=alt.Color('fas_count:Q', title='FAS QTY', 
+                                scale=alt.Scale(
+                                    domain=[fas_min, fas_min + (fas_mid-fas_min)*0.25, fas_min + (fas_mid-fas_min)*0.5, fas_mid, fas_mid + (fas_max-fas_mid)*0.5, fas_max],
+                                    range=['#d73027', '#f46d43', '#fdae61', '#fee08b', '#a6d96a', '#1a9850']
+                                )
+                            ),
                             tooltip=[
                                 alt.Tooltip('lvc_group:N', title='LVC'),
                                 alt.Tooltip('persona:N', title='Persona'),
+                                alt.Tooltip('fas_count:Q', title='FAS QTY', format=',d'),
                                 alt.Tooltip('fas_rate:Q', title='FAS Rate', format='.1%'),
                                 alt.Tooltip('lead_count:Q', title='Lead Count', format=',d')
                             ]
-                        ).properties(
+                        )
+                        
+                        # Add text labels showing FAS QTY and FAS Rate
+                        heatmap_text = alt.Chart(df_heatmap).mark_text(fontSize=10, color='black', fontWeight='bold').encode(
+                            x=alt.X('lvc_group:N'),
+                            y=alt.Y('persona:N'),
+                            text=alt.Text('label:N')
+                        ).transform_calculate(
+                            label="datum.fas_count + ' (' + format(datum.fas_rate, '.1%') + ')'"
+                        )
+                        
+                        heatmap = (heatmap_base + heatmap_text).properties(
                             height=400
                         ).configure_view(
                             strokeWidth=0
@@ -662,6 +677,253 @@ if creds:
             st.error(f"LVC-Persona Analysis Error: {e}")
             st.caption("Note: This analysis requires a 'persona' field in the data source.")
 
+        # --- 4. Finance Group to Persona Analysis ---
+        st.divider()
+        st.header("💰 Finance Group to Persona Analysis (1/1/2025+)")
+        st.caption("Understanding which personas flow into which Finance Groups and their FAS performance (Data from January 1, 2025 onwards)")
+        
+        finance_persona_query = f"""
+        SELECT 
+            COALESCE(finance_group, 'Unknown') as finance_group,
+            COALESCE(persona, 'Unknown') as persona,
+            COUNT(DISTINCT lendage_guid) as lead_count,
+            COUNT(DISTINCT lendage_guid) as sent_to_sales_qty,
+            COUNT(DISTINCT CASE WHEN full_app_submit_datetime IS NOT NULL THEN lendage_guid END) as fas_count
+        FROM `ffn-dw-bigquery-prd.Ramzi.lendage_lead_vintages_table`
+        WHERE lead_created_date >= '2025-01-01'
+        AND finance_group IS NOT NULL
+        AND sent_to_sales_date IS NOT NULL
+        GROUP BY 1, 2
+        """
+        
+        with st.expander("View Finance Group-Persona SQL"):
+            st.code(finance_persona_query)
+        
+        try:
+            with st.spinner("Fetching Finance Group-Persona Data..."):
+                df_finance_persona = client.query(finance_persona_query).to_dataframe()
+                
+                if not df_finance_persona.empty:
+                    # Calculate FAS Rate
+                    df_finance_persona['fas_rate'] = df_finance_persona.apply(
+                        lambda x: x['fas_count'] / x['sent_to_sales_qty'] if x['sent_to_sales_qty'] > 0 else 0, axis=1
+                    )
+                    
+                    st.subheader("📊 Lead Distribution: Finance Group → Persona")
+                    
+                    # Calculate totals for percentages
+                    total_leads_fg = df_finance_persona['lead_count'].sum()
+                    fg_totals = df_finance_persona.groupby('finance_group')['lead_count'].sum().to_dict()
+                    persona_totals_fg = df_finance_persona.groupby('persona')['lead_count'].sum().to_dict()
+                    
+                    # Create node labels with percentages
+                    fg_nodes = sorted(df_finance_persona['finance_group'].unique().tolist())
+                    persona_nodes_fg = sorted(df_finance_persona['persona'].unique().tolist())
+                    
+                    fg_labels = [f"{node}<br>({fg_totals.get(node, 0):,} | {fg_totals.get(node, 0)/total_leads_fg*100:.1f}%)" for node in fg_nodes]
+                    persona_labels_fg = [f"{node}<br>({persona_totals_fg.get(node, 0):,} | {persona_totals_fg.get(node, 0)/total_leads_fg*100:.1f}%)" for node in persona_nodes_fg]
+                    all_node_labels_fg = fg_labels + persona_labels_fg
+                    all_nodes_fg = fg_nodes + persona_nodes_fg
+                    
+                    # Node colors
+                    fg_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2']
+                    persona_colors_fg = ['#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5']
+                    node_colors_fg = fg_colors[:len(fg_nodes)] + persona_colors_fg[:len(persona_nodes_fg)]
+                    
+                    sources_fg = []
+                    targets_fg = []
+                    values_fg = []
+                    link_colors_fg = []
+                    link_labels_fg = []
+                    
+                    for _, row in df_finance_persona.iterrows():
+                        src_idx = all_nodes_fg.index(row['finance_group'])
+                        tgt_idx = all_nodes_fg.index(row['persona'])
+                        sources_fg.append(src_idx)
+                        targets_fg.append(tgt_idx)
+                        values_fg.append(row['lead_count'])
+                        link_colors_fg.append(f"rgba(255, 127, 14, 0.4)")
+                        # Calculate % of total and % within Finance Group
+                        pct_total = row['lead_count'] / total_leads_fg * 100
+                        pct_fg = row['lead_count'] / fg_totals.get(row['finance_group'], 1) * 100
+                        link_labels_fg.append(f"{row['lead_count']:,} leads ({pct_total:.1f}% of total, {pct_fg:.1f}% of {row['finance_group']})")
+                    
+                    fig_finance_persona = go.Figure(data=[go.Sankey(
+                        node=dict(
+                            pad=15,
+                            thickness=20,
+                            line=dict(color="black", width=0.5),
+                            label=all_node_labels_fg,
+                            color=node_colors_fg
+                        ),
+                        link=dict(
+                            source=sources_fg,
+                            target=targets_fg,
+                            value=values_fg,
+                            color=link_colors_fg,
+                            label=link_labels_fg,
+                            hovertemplate='%{label}<extra></extra>'
+                        ),
+                        textfont=dict(color='black', size=12)
+                    )])
+                    
+                    fig_finance_persona.update_layout(
+                        font=dict(size=12, color='black'),
+                        height=500,
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    
+                    st.plotly_chart(fig_finance_persona, use_container_width=True)
+                    
+                    # Summary table
+                    st.subheader("📋 Finance Group Performance Summary")
+                    
+                    fg_summary = df_finance_persona.groupby('finance_group').agg({
+                        'lead_count': 'sum',
+                        'sent_to_sales_qty': 'sum',
+                        'fas_count': 'sum'
+                    }).reset_index()
+                    fg_summary['fas_rate'] = fg_summary.apply(
+                        lambda x: x['fas_count'] / x['sent_to_sales_qty'] if x['sent_to_sales_qty'] > 0 else 0, axis=1
+                    )
+                    fg_summary['lead_pct'] = fg_summary['lead_count'] / fg_summary['lead_count'].sum()
+                    fg_summary = fg_summary.sort_values('fas_rate', ascending=False)
+                    
+                    # Format for display
+                    display_fg = fg_summary.copy()
+                    display_fg['FAS Rate'] = display_fg['fas_rate'].apply(lambda x: f"{x:.1%}")
+                    display_fg['Lead %'] = display_fg['lead_pct'].apply(lambda x: f"{x:.1%}")
+                    display_fg['Leads'] = display_fg['lead_count'].apply(lambda x: f"{x:,}")
+                    display_fg['FAS Count'] = display_fg['fas_count'].apply(lambda x: f"{x:,}")
+                    display_fg = display_fg[['finance_group', 'Leads', 'Lead %', 'FAS Count', 'FAS Rate']]
+                    display_fg.columns = ['Finance Group', 'Leads', 'Lead %', 'FAS Count', 'FAS Rate']
+                    
+                    st.dataframe(display_fg, use_container_width=True, hide_index=True)
+                    
+                    # Insights
+                    best_fg = fg_summary.iloc[0]
+                    worst_fg = fg_summary.iloc[-1]
+                    
+                    st.markdown("**🔍 Key Insights:**")
+                    st.markdown(f"- **Best Converting Finance Group**: `{best_fg['finance_group']}` with **{best_fg['fas_rate']:.1%}** FAS rate")
+                    st.markdown(f"- **Lowest Converting Finance Group**: `{worst_fg['finance_group']}` with **{worst_fg['fas_rate']:.1%}** FAS rate")
+                    
+                    # --- What's Driving Each Finance Group ---
+                    st.divider()
+                    st.subheader("🔎 What's Driving Each Finance Group?")
+                    st.caption("Top personas contributing to each finance group by volume and conversion")
+                    
+                    # Create detailed breakdown by finance group
+                    df_drivers = df_finance_persona.copy()
+                    
+                    # Calculate % within each finance group
+                    fg_totals_for_pct = df_drivers.groupby('finance_group')['lead_count'].transform('sum')
+                    df_drivers['pct_of_fg'] = df_drivers['lead_count'] / fg_totals_for_pct
+                    
+                    # Get unique finance groups
+                    finance_groups = sorted(df_drivers['finance_group'].unique().tolist())
+                    
+                    # Create tabs for each finance group
+                    fg_tabs = st.tabs(finance_groups)
+                    
+                    for i, fg in enumerate(finance_groups):
+                        with fg_tabs[i]:
+                            fg_data = df_drivers[df_drivers['finance_group'] == fg].copy()
+                            fg_data = fg_data.sort_values('lead_count', ascending=False)
+                            
+                            # Summary metrics
+                            total_leads_fg = fg_data['lead_count'].sum()
+                            total_fas_fg = fg_data['fas_count'].sum()
+                            overall_fas_rate = total_fas_fg / total_leads_fg if total_leads_fg > 0 else 0
+                            
+                            col_m1, col_m2, col_m3 = st.columns(3)
+                            with col_m1:
+                                st.metric("Total Leads (StS)", f"{total_leads_fg:,}")
+                            with col_m2:
+                                st.metric("Total FAS", f"{total_fas_fg:,}")
+                            with col_m3:
+                                st.metric("Overall FAS Rate", f"{overall_fas_rate:.1%}")
+                            
+                            # Persona breakdown table
+                            st.markdown("**Persona Breakdown:**")
+                            display_drivers = fg_data[['persona', 'lead_count', 'pct_of_fg', 'fas_count', 'fas_rate']].copy()
+                            display_drivers['Lead Count'] = display_drivers['lead_count'].apply(lambda x: f"{x:,}")
+                            display_drivers['% of Finance Group'] = display_drivers['pct_of_fg'].apply(lambda x: f"{x:.1%}")
+                            display_drivers['FAS Count'] = display_drivers['fas_count'].apply(lambda x: f"{x:,}")
+                            display_drivers['FAS Rate'] = display_drivers['fas_rate'].apply(lambda x: f"{x:.1%}")
+                            display_drivers = display_drivers[['persona', 'Lead Count', '% of Finance Group', 'FAS Count', 'FAS Rate']]
+                            display_drivers.columns = ['Persona', 'Leads', '% of Group', 'FAS', 'FAS Rate']
+                            
+                            st.dataframe(display_drivers, use_container_width=True, hide_index=True)
+                            
+                            # Top driver insight
+                            top_persona = fg_data.iloc[0]
+                            best_converting = fg_data.loc[fg_data['fas_rate'].idxmax()]
+                            
+                            st.markdown(f"""
+                            **💡 Insights for {fg}:**
+                            - **Highest Volume**: `{top_persona['persona']}` drives **{top_persona['pct_of_fg']:.1%}** of leads ({top_persona['lead_count']:,} leads)
+                            - **Best Converter**: `{best_converting['persona']}` has the highest FAS rate at **{best_converting['fas_rate']:.1%}**
+                            """)
+                    
+                    # Deep Dive: All Personas side by side
+                    st.divider()
+                    st.subheader("🎯 Deep Dive: All Personas (1/1/2025+, Sent to Sales)")
+                    st.caption("Understanding what finance groups each persona flows into")
+                    
+                    # Get unique personas sorted by total lead count
+                    persona_totals = df_drivers.groupby('persona')['lead_count'].sum().sort_values(ascending=False)
+                    all_personas_sorted = persona_totals.index.tolist()
+                    
+                    if all_personas_sorted:
+                        # Create columns for all personas (side by side)
+                        num_personas = len(all_personas_sorted)
+                        persona_cols = st.columns(num_personas)
+                        
+                        for idx, persona_name in enumerate(all_personas_sorted):
+                            with persona_cols[idx]:
+                                st.markdown(f"### {persona_name}")
+                                persona_detail = df_drivers[df_drivers['persona'] == persona_name].sort_values('lead_count', ascending=False)
+                                
+                                total_persona = persona_detail['lead_count'].sum()
+                                fas_persona = persona_detail['fas_count'].sum()
+                                rate_persona = fas_persona / total_persona if total_persona > 0 else 0
+                                
+                                st.metric("Leads (StS)", f"{total_persona:,}")
+                                st.metric("FAS Rate", f"{rate_persona:.1%}")
+                                
+                                st.markdown("**Finance Groups:**")
+                                
+                                # Calculate % within this persona
+                                persona_detail = persona_detail.copy()
+                                persona_detail['pct_of_persona'] = persona_detail['lead_count'] / total_persona
+                                
+                                for _, row in persona_detail.iterrows():
+                                    st.markdown(f"- `{row['finance_group']}`: {row['lead_count']:,} ({row['pct_of_persona']:.1%}) → **{row['fas_rate']:.1%}**")
+                                
+                                # Conversion insight
+                                if len(persona_detail) > 0:
+                                    best_conv = persona_detail.loc[persona_detail['fas_rate'].idxmax()]
+                                    worst_conv = persona_detail.loc[persona_detail['fas_rate'].idxmin()]
+                                    st.markdown(f"""
+                                    ---
+                                    🏆 **Best:** `{best_conv['finance_group']}` ({best_conv['fas_rate']:.1%})
+                                    
+                                    ⚠️ **Lowest:** `{worst_conv['finance_group']}` ({worst_conv['fas_rate']:.1%})
+                                    """)
+                    else:
+                        st.info("No persona data found.")
+                    
+                else:
+                    st.warning("No finance group data found for the selected filters.")
+                    
+        except Exception as e:
+            st.error(f"Finance Group-Persona Analysis Error: {e}")
+            st.caption("Note: This analysis requires a 'finance_group' field in the data source.")
+
+    # Back to Main Dashboard tab for HTML Export
+    with tab_main:
         # --- HTML Export Logic ---
         st.divider()
         if 'df' in locals() and not df.empty:
