@@ -10,8 +10,8 @@ __pycache__/
 # Data files
 *.csv
 *.xlsx
-*.txt
 *.log
+!requirements_dash.txt
 
 # Mac specific
 .DS_Store

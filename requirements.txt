@@ -1,7 +1,0 @@
-streamlit
-google-cloud-bigquery
-pandas
-db-dtypes
-plotly
-altair
-pyarrow
