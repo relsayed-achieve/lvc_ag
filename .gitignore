@@ -1,0 +1,34 @@
+# Virtual environments
+venv/
+env/
+.env
+
+# Cache files
+__pycache__/
+*.pyc
+
+# Data files
+*.csv
+*.xlsx
+*.txt
+*.log
+
+# Mac specific
+.DS_Store
+
+# Images/assets that might be large
+dashboard_automation_screenshots/
+dashboard_screenshots/
+dashboard_screenshots_complete/
+dashboard_screenshots_detailed/
+dashboard_screenshots_expanded/
+dashboard_complete_capture/
+dashboard_expanded_all/
+dashboard_final/
+dashboard_final_expanded/
+dashboard_patient_capture/
+dashboard_all_tabs/
+test_screenshot.png
+
+# Other
+app_backup_*.py
