@@ -22,6 +22,6 @@ This sets up "Application Default Credentials" (ADC) which the app detects autom
 ## Running the App
 
 ```bash
-python dash_app.py
+python lvc_day7_vintage_dashboard.py
 ```
-After running, navigate to `http://127.0.0.1:8050` in your web browser.
+After running, navigate to `http://127.0.0.1:8051/` in your web browser.
